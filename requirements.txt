@@ -1,0 +1,12 @@
+numpy
+opencv-python
+nibabel
+torch
+torchvision
+torchaudio
+scipy
+albumentations
+albumentations[torch]
+matplotlib
+scikit-learn
+mamba-ssm
