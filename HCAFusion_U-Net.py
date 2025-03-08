@@ -319,10 +319,8 @@ class MultiViewUNet(nn.Module):
         self.se_fusion = SEBlock(64)
         self.dropout = nn.Dropout2d(p=dropout_p)
         
-        # Define a common pooling layer (kernel=2, stride=2)
         self.pool = nn.MaxPool2d(2)
         
-        # Encoder Path
         # Level 1: Already given by SE fusion output (64 channels)
         self.encoder2 = self.conv_block(64, 128)   # Level 2: 64 -> 128
         self.encoder3 = self.conv_block(128, 256)    # Level 3: 128 -> 256
@@ -331,22 +329,17 @@ class MultiViewUNet(nn.Module):
         # Bottleneck: from 512 to 1024 channels
         self.bottleneck = self.conv_block(512, 1024)
         
-        # Decoder Path
-        # Level 4 Decoder: Up4, concat with encoder4, then decoder4
         self.up4 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
-        self.decoder4 = self.conv_block(1024, 512)   # 512 (upsampled) + 512 from encoder4
+        self.decoder4 = self.conv_block(1024, 512)   
         
-        # Level 3 Decoder: Up3, concat with encoder3, then decoder3
         self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
-        self.decoder3 = self.conv_block(512, 256)    # 256 + 256
+        self.decoder3 = self.conv_block(512, 256)    
         
-        # Level 2 Decoder: Up2, concat with encoder2, then decoder2
         self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.decoder2 = self.conv_block(256, 128)    # 128 + 128
+        self.decoder2 = self.conv_block(256, 128)  
         
-        # Level 1 Decoder: Up1, concat with SE fusion (enc1), then decoder1
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.decoder1 = self.conv_block(128, 64)     # 64 + 64
+        self.decoder1 = self.conv_block(128, 64)    
         
         # Final segmentation output
         self.final_conv = nn.Conv2d(64, num_classes, kernel_size=1)
@@ -365,36 +358,35 @@ class MultiViewUNet(nn.Module):
         enc1 = self.se_fusion(x_fused)  # enc1: 64 channels
         enc1 = self.dropout(enc1)
         
-        # Encoder Path
-        x1 = self.pool(enc1)            # Downsample level 1
+        x1 = self.pool(enc1)            
         enc2 = self.encoder2(x1)        # enc2: 128 channels
         
-        x2 = self.pool(enc2)            # Downsample level 2
+        x2 = self.pool(enc2)            
         enc3 = self.encoder3(x2)        # enc3: 256 channels
         
-        x3 = self.pool(enc3)            # Downsample level 3
+        x3 = self.pool(enc3)            
         enc4 = self.encoder4(x3)        # enc4: 512 channels
         
-        x4 = self.pool(enc4)            # Downsample level 4
+        x4 = self.pool(enc4)            
         x5 = self.bottleneck(x4)        # Bottleneck: 1024 channels
         x5 = self.dropout(x5)
         
         # Decoder Path
         x6 = self.up4(x5)               # Upsample to 512 channels
-        x6 = torch.cat([x6, enc4], dim=1)  # Concat with encoder level 4 (512 + 512 = 1024)
-        x6 = self.decoder4(x6)          # Output: 512 channels
+        x6 = torch.cat([x6, enc4], dim=1)  
+        x6 = self.decoder4(x6)          
         
         x7 = self.up3(x6)               # Upsample to 256 channels
-        x7 = torch.cat([x7, enc3], dim=1)  # Concat with encoder level 3 (256 + 256 = 512)
-        x7 = self.decoder3(x7)          # Output: 256 channels
+        x7 = torch.cat([x7, enc3], dim=1)  
+        x7 = self.decoder3(x7)          
         
         x8 = self.up2(x7)               # Upsample to 128 channels
-        x8 = torch.cat([x8, enc2], dim=1)  # Concat with encoder level 2 (128 + 128 = 256)
-        x8 = self.decoder2(x8)          # Output: 128 channels
+        x8 = torch.cat([x8, enc2], dim=1)  
+        x8 = self.decoder2(x8)          
         
         x9 = self.up1(x8)               # Upsample to 64 channels
-        x9 = torch.cat([x9, enc1], dim=1)  # Concat with encoder level 1 (64 + 64 = 128)
-        x9 = self.decoder1(x9)          # Output: 64 channels
+        x9 = torch.cat([x9, enc1], dim=1)  
+        x9 = self.decoder1(x9)         
         
         return self.final_conv(x9)
     
