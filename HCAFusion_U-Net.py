@@ -314,88 +314,76 @@ class SEBlock(nn.Module):
 class MultiViewUNet(nn.Module):
     def __init__(self, in_channels, num_classes, dropout_p=0.1):
         super(MultiViewUNet, self).__init__()
-        # Fusion and SE block
-        self.hca_fusion = HCAFusion(in_channels)
+        self.hca_fusion = HCAFusion(in_channels)  
+
+        # squeeze-and-excitation block for 64 channels
         self.se_fusion = SEBlock(64)
+
         self.dropout = nn.Dropout2d(p=dropout_p)
-        
-        self.pool = nn.MaxPool2d(2)
-        
-        # Level 1: Already given by SE fusion output (64 channels)
-        self.encoder2 = self.conv_block(64, 128)   # Level 2: 64 -> 128
-        self.encoder3 = self.conv_block(128, 256)    # Level 3: 128 -> 256
-        self.encoder4 = self.conv_block(256, 512)    # Level 4: 256 -> 512
-        
-        # Bottleneck: from 512 to 1024 channels
-        self.bottleneck = self.conv_block(512, 1024)
-        
-        self.up4 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
-        self.decoder4 = self.conv_block(1024, 512)   
-        
-        self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
-        self.decoder3 = self.conv_block(512, 256)    
-        
-        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.decoder2 = self.conv_block(256, 128)  
-        
-        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.decoder1 = self.conv_block(128, 64)    
-        
-        # Final segmentation output
-        self.final_conv = nn.Conv2d(64, num_classes, kernel_size=1)
-        
+
+        self.encoder2 = self.conv_block(64, 128)
+        self.pool2 = nn.MaxPool2d(2)
+        self.encoder3 = self.conv_block(128, 256)
+        self.pool3 = nn.MaxPool2d(2)
+
+        self.bottleneck = self.conv_block(256, 512)
+
+        self.up3 = nn.ConvTranspose2d(512, 256, 2, 2)
+        self.decoder3 = self.conv_block(512, 256)
+        self.up2 = nn.ConvTranspose2d(256, 128, 2, 2)
+        self.decoder2 = self.conv_block(256, 128)
+        self.up1 = nn.ConvTranspose2d(128, 64, 2, 2)
+        self.decoder1 = self.conv_block(128, 64)
+        self.final_conv = nn.Conv2d(64, num_classes, 1)
+
     def conv_block(self, in_channels, out_channels):
         return nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
             nn.ReLU(inplace=True)
         )
-    
+
     def forward(self, x_2ch, x_4ch):
-        # Fusion and SE Block
+        # get fused features: shape (B, 64, H, W)
         x_fused = self.hca_fusion(x_2ch, x_4ch)
-        enc1 = self.se_fusion(x_fused)  # enc1: 64 channels
+
+        # apply SE block to the fused feature (64 channels)
+        enc1 = self.se_fusion(x_fused)
+
         enc1 = self.dropout(enc1)
-        
-        x1 = self.pool(enc1)            
-        enc2 = self.encoder2(x1)        # enc2: 128 channels
-        
-        x2 = self.pool(enc2)            
-        enc3 = self.encoder3(x2)        # enc3: 256 channels
-        
-        x3 = self.pool(enc3)            
-        enc4 = self.encoder4(x3)        # enc4: 512 channels
-        
-        x4 = self.pool(enc4)            
-        x5 = self.bottleneck(x4)        # Bottleneck: 1024 channels
-        x5 = self.dropout(x5)
-        
-        # Decoder Path
-        x6 = self.up4(x5)               # Upsample to 512 channels
-        x6 = torch.cat([x6, enc4], dim=1)  
-        x6 = self.decoder4(x6)          
-        
-        x7 = self.up3(x6)               # Upsample to 256 channels
-        x7 = torch.cat([x7, enc3], dim=1)  
-        x7 = self.decoder3(x7)          
-        
-        x8 = self.up2(x7)               # Upsample to 128 channels
-        x8 = torch.cat([x8, enc2], dim=1)  
-        x8 = self.decoder2(x8)          
-        
-        x9 = self.up1(x8)               # Upsample to 64 channels
-        x9 = torch.cat([x9, enc1], dim=1)  
-        x9 = self.decoder1(x9)         
-        
-        return self.final_conv(x9)
-    
+
+        x1 = self.pool2(enc1)
+        enc2 = self.encoder2(x1)
+        x2 = self.pool3(enc2)
+        enc3 = self.encoder3(x2)
+        x3 = self.pool3(enc3)
+
+        x4 = self.bottleneck(x3)
+        x4 = self.dropout(x4)
+
+        x5 = self.up3(x4)
+        x5 = torch.cat([x5, enc3], dim=1)
+        x5 = self.decoder3(x5)
+
+        x6 = self.up2(x5)
+        x6 = torch.cat([x6, enc2], dim=1)
+        x6 = self.decoder2(x6)
+        #x6 = self.dropout(x6)
+
+        x7 = self.up1(x6)
+        x7 = torch.cat([x7, enc1], dim=1)
+        x7 = self.decoder1(x7)
+
+        return self.final_conv(x7)
+
     def adjust_dropout(self, epoch, max_epoch, initial_dropout=0.1, final_dropout=0.01):
         drop_rate = initial_dropout - (initial_dropout - final_dropout) * (epoch / max_epoch)
-        # Update dropout rate dynamically in all Dropout2d layers
+        
+        # update dropout rate dynamically in all layers
         for layer in self.modules():
             if isinstance(layer, nn.Dropout2d):
-                layer.p = drop_rate
+                layer.p = drop_rate 
 
 
 # metrics and graphs
